@@ -1,11 +1,11 @@
 import sys
 import os
-import asyncio
-import aiohttp
+import requests
 import secrets
 import string
 from dotenv import load_dotenv, find_dotenv
 from datetime import datetime
+from time import sleep
 
 load_dotenv(find_dotenv())
 token = os.environ.get("AUTH_TOKEN")
@@ -34,55 +34,46 @@ os.makedirs(output_dir, exist_ok=True)
 timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
 
-async def check_username(username):
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.patch(
-                'https://discord.com/api/v9/users/@me',
-                headers={
-                    'Authorization': token
-                },
-                json={
-                    "username": username,
-                    "password": ""
-                },
-            ) as response:
-                if response.status == 401:
-                    print("Unauthorized, Please add your Discord token into your '.env' file.")
-                    await asyncio.sleep(10)
-                elif response.status == 429:
-                    print("Rate limited. Waiting...")
-                    retry_after = response.headers.get("Retry-After")
-                    if retry_after:
-                        await asyncio.sleep(int(retry_after))
-                elif response.headers.get('Server') == 'cloudflare': 
-                    print("Waiting for 5 minutes due to Cloudflare.")
-                    await asyncio.sleep(300)
-                else:
-                    data = await response.json()
-                    if "USERNAME_ALREADY_TAKEN" in data.get("message", ""):
-                        print(f"Username taken: {username}")
-                    else:
-                        print(f"Username available: {username}")
-                        return username
-        except Exception as e:
-            print(f"Error occurred for username {username}: {e}")
+def check_username(username):
+    try:
+        response = requests.patch(
+            'https://discord.com/api/v9/users/@me',
+            headers={
+                'Authorization': f'{token}'
+            },
+            json={
+                "username": f"{username}",
+                "password": ""
+            },
+        )
+
+        if response.status_code == 401:
+            print("Unauthorized, Please add your Discord token into your '.env' file.")
+            sleep(10)
+        else:
+            data = response.json()
+            if "USERNAME_ALREADY_TAKEN" in response.content.decode():
+                print(f"Username taken: {username}")
+            else:
+                print(f"Username available: {username} \n{response.content,}\n")
+                return username
+    except Exception as e:
+        print(f"Error occurred for username {username}: {e}")
     return None
 
 
-async def generate_and_check_usernames():
+def generate_and_check_usernames():
     output_file = f"{output_dir}/available_username_data_{timestamp}.txt"
     with open(output_file, "w") as f:
         while True:
-            username = ''.join(secrets.choice(string.ascii_lowercase + string.digits + "_.")
-                               for _ in range(l))
-            result = await check_username(username)
+            username = ''.join(secrets.choice(string.ascii_lowercase + string.digits + "_.") for _ in range(l))
+            result = check_username(username)
             if result:
                 f.write(result + "\n")
-            await asyncio.sleep(t)
+            sleep(t)
 
 
-async def read_usernames_from_file():
+def read_usernames_from_file():
     list_dir = "lists"
     os.makedirs(list_dir, exist_ok=True)
 
@@ -108,30 +99,23 @@ async def read_usernames_from_file():
 
         output_file = f"{output_dir}/available_username_data_{timestamp}.txt"
         with open(file_path, "r") as userlist, open(output_file, "w") as f:
-            tasks = []
-            async with aiohttp.ClientSession() as session:
-                for user in userlist:
-                    task = asyncio.create_task(check_username(user.strip()))
-                    tasks.append(task)
-                    await asyncio.sleep(t)
-
-                results = await asyncio.gather(*tasks)
-                for result in results:
-                    if result:
-                        f.write(result + "\n")
+            for user in userlist:
+                result = check_username(user.strip())
+                if result:
+                    f.write(result + "\n")
+                sleep(t)
 
     except ValueError:
         print("Invalid input.")
 
 
-async def main():
+def main():
     if i == 1:
-        await generate_and_check_usernames()
+        generate_and_check_usernames()
     elif i == 2:
-        await read_usernames_from_file()
+        read_usernames_from_file()
     else:
         print("No")
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+main()
